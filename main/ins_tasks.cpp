@@ -1,4 +1,4 @@
-#include "./all_tasks.h"
+#include "./ins_tasks.h"
 
 #include <stdio.h>
 #include <stdlib.h>

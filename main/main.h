@@ -2,8 +2,8 @@
  * @Author: Zhenwei Song zhenwei.song@qq.com
  * @Date: 2024-03-11 15:46:52
  * @LastEditors: Zhenwei Song zhenwei.song@qq.com
- * @LastEditTime: 2024-07-18 14:32:01
- * @FilePath: \esp32_positioning\main\main.h
+ * @LastEditTime: 2024-07-22 18:58:13
+ * @FilePath: \esp32_integrated navigation\main\main.h
  * @Description: 仅供学习交流使用
  * Copyright (c) 2024 by Zhenwei Song, All Rights Reserved.
  */
@@ -16,6 +16,10 @@
 // #define DEBUG
 
 #define IS_ESP32_S3
+/* -------------------------------------------------------------------------- */
+/*                                    启用蓝牙                                    */
+/* -------------------------------------------------------------------------- */
+#define BLE
 
 /* -------------------------------------------------------------------------- */
 /*                                  数据读取方式设定                                  */
@@ -71,10 +75,10 @@
 #define LATITUDE 34.2339893101992    // 纬度
 #define ALTITUDE 430                 // 海拔
 
-#define WAIT_TIME 3000      // 秒乘1000
-#define ALIGN_TIME 300 - 00 // 秒乘1000
+#define WAIT_TIME 1000      // 秒乘1000
+#define ALIGN_TIME 1000 // 秒乘1000
 // #define ALIGN_TIME 10000 // 秒乘1000
-#define ZERO_BIAS_CAL_TIME 5000
+#define ZERO_BIAS_CAL_TIME 1000
 /* -------------------------------------------------------------------------- */
 /*                                  降采样速率相关设置                                 */
 /* -------------------------------------------------------------------------- */

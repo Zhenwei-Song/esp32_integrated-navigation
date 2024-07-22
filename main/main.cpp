@@ -2,8 +2,8 @@
  * @Author: Zhenwei Song zhenwei.song@qq.com
  * @Date: 2024-02-28 18:53:28
  * @LastEditors: Zhenwei Song zhenwei.song@qq.com
- * @LastEditTime: 2024-03-19 16:40:02
- * @FilePath: \esp32_positioning\main\main.cpp
+ * @LastEditTime: 2024-07-22 19:29:53
+ * @FilePath: \esp32_integrated navigation\main\main.cpp
  * 驱动mpu9250，串口输出欧拉角，可用上位机进行串口连接查看图像
  * 利用官方dmp库输出欧拉角（使用I2C时）
  * 使用I2C连接,或者SPI(SPI存在陀螺仪z轴无数据情况，且速度慢，不推荐)
@@ -24,7 +24,7 @@
  * Copyright (c) 2024 by Zhenwei Song, All Rights Reserved.
  */
 #include "./main.h"
-#include "./all_tasks.h"
+#include "./ins_tasks.h"
 
 #include "./../components/mpu9250/inc/empl_driver.h"
 #include "./../components/mpu_timer/inc/positioning_timer.h"
@@ -63,6 +63,14 @@
 
 #include "./../components/band_pass_filter/inc/band_pass_filter.h"
 #include "./../components/shift_window/inc/shift_window.h"
+
+#ifdef BLE
+#include "./../components/ble/inc/ble.h"
+#include "./../components/ble/inc/ble_queue.h"
+#include "./../components/ble/inc/data_manage.h"
+#include "esp_gap_ble_api.h"
+#include "nvs_flash.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -185,6 +193,55 @@ extern "C" void app_main(void)
     float w_m = 0;
 
     printf("Initalizing!!\n");
+
+#ifdef BLE
+    /* -------------------------------------------------------------------------- */
+    /*                                   蓝牙指纹定位                                   */
+    /* -------------------------------------------------------------------------- */
+    esp_err_t ret;
+    // 初始化NV存储
+    ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    // 初始化BLE控制器和蓝牙堆栈
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    ret = esp_bt_controller_init(&bt_cfg);
+    if (ret) {
+        ESP_LOGE(TAG, "esp_bt_controller_init failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
+    if (ret) {
+        ESP_LOGE(TAG, "esp_bt_controller_enable failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    ret = esp_bluedroid_init();
+    if (ret) {
+        ESP_LOGE(TAG, "esp_bluedroid_init failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    ret = esp_bluedroid_enable();
+    if (ret) {
+        ESP_LOGE(TAG, "esp_bluedroid_enable failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    ret = esp_ble_gap_register_callback(gap_event_handler);
+    if (ret) {
+        ESP_LOGE(TAG, "gap register error, error code = %x", ret);
+        return;
+    }
+    all_queue_init();
+    xCountingSemaphore_receive = xSemaphoreCreateCounting(200, 0);
+    esp_ble_gap_set_scan_params(&ble_scan_params);
+    esp_ble_gap_start_scanning(duration);
+    xTaskCreate(ble_rec_data_task, "ble_rec_data_task", 4096, NULL, 4, NULL);
+    printf("ble start scaning\n");
+#endif // BLE
+
     while (1) {
         if (xSemaphoreTake(xCountingSemaphore_data_update, portMAX_DELAY) == pdTRUE) {
 
@@ -381,6 +438,7 @@ extern "C" void app_main(void)
                         my_att.k = yaw;
                         kf.Init(CSINS(my_att, O31, pos0)); // 请正确初始化方位和位置
                         yaw_init_ok = true;
+                        printf("Finish initializing yaw!\n");
                     }
                     else {
                         kf.Update(&wm, &vm, 1, my_TS, 1);
