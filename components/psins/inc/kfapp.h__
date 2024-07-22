@@ -1,0 +1,19 @@
+#ifndef _KFAPP_H
+#define _KFAPP_H
+
+#include "PSINS.h"
+
+#define FRQ FRQ100
+#define TS (1.0 / FRQ)
+
+typedef struct {
+    CSINS ins;
+    int grade;
+} CKFApp;
+
+void CKFApp_Init(CKFApp *kf, const CSINS *sins0, int grade);
+void AVPUartOut(const CKFApp *kf);
+void AVPUartOut_att(const CVect3 *att, const CVect3 *vn, const CVect3 *pos);
+
+#endif
+

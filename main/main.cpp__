@@ -1,0 +1,479 @@
+/*
+ * @Author: Zhenwei Song zhenwei.song@qq.com
+ * @Date: 2024-02-28 18:53:28
+ * @LastEditors: Zhenwei Song zhenwei.song@qq.com
+ * @LastEditTime: 2024-03-25 14:56:58
+ * @FilePath: \esp32_positioning\main\main.cpp
+ * @Description: 仅供学习交流使用
+ * Copyright (c) 2024 by Zhenwei Song, All Rights Reserved.
+ */
+/*
+ * @Author: Zhenwei Song zhenwei.song@qq.com
+ * @Date: 2024-02-28 18:53:28
+ * @LastEditors: Zhenwei Song zhenwei.song@qq.com
+ * @LastEditTime: 2024-03-19 16:40:02
+ * @FilePath: \esp32_positioning\main\main.cpp
+ * 驱动mpu9250，串口输出欧拉角，可用上位机进行串口连接查看图像
+ * 利用官方dmp库输出欧拉角（使用I2C时）
+ * 使用I2C连接,或者SPI(SPI存在陀螺仪z轴无数据情况，且速度慢，不推荐)
+ * 引脚使用（I2C）：INT 23 SCL 22  SDA 21 供电3.3v
+ * 引脚使用（SPI）: SCL 25 SDA 33 AD0 32 NCS 26
+ * 采样率设置(I2C)：最快为200Hz(5ms采集一次)
+ * 加速度量程设置：2到16g ,使用4g作为量程(使用SPI时默认量程)
+ * 陀螺仪量程设置：250到2000deg/s,使用500deg/s作为量程(使用SPI时默认量程)
+ * @Description: 仅供学习交流使用
+ * Copyright (c) 2024 by Zhenwei Song, All Rights Reserved.
+ */
+#include "./main.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+
+#include "./../components/mpu9250/inc/empl_driver.h"
+#include "./../components/mpu_timer/inc/positioning_timer.h"
+
+#ifdef USING_DMP
+#include "./../components/mpu9250/inc/mpu_dmp_driver.h"
+#endif // USING_DMP
+
+#ifdef USING_RAW
+#include "./../components/mpu9250/inc/mpu9250_raw.h"
+#endif // USING_RAW
+
+#ifdef USING_INS
+#include "./../components/ins/inc/data_processing.h"
+#include "./../components/ins/inc/ins.h"
+#endif // USING_INS
+
+#ifdef USING_PSINS
+#include "./../components/mpu9250/inc/mpu_dmp_driver.h"
+#include "./../components/psins/inc/KFApp.h"
+#include "./../components/psins/inc/mcu_init.h"
+#endif // USING_PSINS
+
+#ifdef USING_SFANN_SINS
+#include "./../components/mpu9250/inc/mpu_dmp_driver.h"
+#include "./../components/sfann_sins/inc/MyMatrix.h"
+#include "./../components/sfann_sins/inc/att2que.h"
+#include "./../components/sfann_sins/inc/my_insupdate.h"
+#include "./../components/sfann_sins/inc/que2att.h"
+#include "./../components/sfann_sins/inc/que2mat.h"
+#endif // USING_SFANN_SINS
+
+#ifdef USING_I2C
+static bool data_updated = true;
+#ifdef USING_DMP
+float prev_angle = 0.0;
+
+static s_point new_point;
+
+static void gpio_task(void *arg);
+static void ins_init(void);
+// float compute_angle_increment(float current_angle);
+#endif // USING_DMP
+
+#ifdef USING_RAW
+short gyr[3], acc[3], mag[3];
+static void timer3_check_task(void *pvParameters);
+#endif // USING_RAW
+
+#endif // USING_I2C
+
+#ifdef USING_SPI
+static void timer1_check_task(void *pvParameters);
+#endif // USING_SPI
+
+#ifdef ONLY_ATT
+SemaphoreHandle_t xCountingSemaphore_data_update;
+static void data_update(void *pvParameters);
+#endif // ONLY_ATT
+
+#ifdef PSINS_POS
+static CKFApp kf(my_TS);
+SemaphoreHandle_t xCountingSemaphore_data_update_psins_pos;
+static void data_update_psins_pos(void *pvParameters);
+#endif // PSINS_POS
+
+#ifdef USING_SFANN_SINS
+static double wm_data[3] = {0};
+static double vm_data[3] = {0};
+SemaphoreHandle_t xCountingSemaphore_data_update_sins_pos;
+static void data_update_sins_pos(void *pvParameters);
+#endif // USING_SFANN
+
+extern "C" void app_main(void)
+{
+#ifdef ONLY_ATT
+    xCountingSemaphore_data_update = xSemaphoreCreateCounting(200, 0);
+#endif // ONLY_ATT
+#ifdef PSINS_POS
+    xCountingSemaphore_data_update_psins_pos = xSemaphoreCreateCounting(200, 0);
+#endif // PSINS_POS
+#ifdef USING_SFANN_SINS
+    xCountingSemaphore_data_update_sins_pos = xSemaphoreCreateCounting(200, 0);
+#endif // USING_SFANN_SINS
+
+#if defined USING_PSINS && defined USING_DMP
+    xCountingSemaphore_timeout2 = xSemaphoreCreateCounting(200, 0);
+    mpu_dmp_init();
+    i2c_gpio_init();
+    ins_init();
+    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
+    start_i2c_isr();
+    xTaskCreate(gpio_task, "gpio_task", 4096, NULL, 10, NULL);
+#endif // USING_PSINS && USING_DMP
+
+#if defined USING_PSINS && defined USING_RAW
+    uint8_t res = 0;
+    mpu_init_i2c();
+    res = RAW_MPU9250_Init();
+    if (res != 0) {
+        printf("raw_mPU9250_init() failed %d\n", res);
+    }
+    positioning_timer_init();
+    esp_timer_start_periodic(positioning_time3_timer, TIME3_TIMER_PERIOD);
+    printf("check point 0\n");
+    xCountingSemaphore_timeout3 = xSemaphoreCreateCounting(200, 0);
+    xTaskCreate(timer3_check_task, "timer3_check_task", 4096, NULL, 4, NULL);
+#endif // USING_PSINS && USING_RAW
+
+#ifdef USING_SFANN_SINS
+    uint8_t res = 0;
+    mpu_init_i2c();
+    res = RAW_MPU9250_Init();
+    if (res != 0) {
+        printf("raw_mPU9250_init() failed %d\n", res);
+    }
+    positioning_timer_init();
+    esp_timer_start_periodic(positioning_time3_timer, TIME3_TIMER_PERIOD);
+    xCountingSemaphore_timeout3 = xSemaphoreCreateCounting(200, 0);
+    xTaskCreate(timer3_check_task, "timer3_check_task", 4096, NULL, 4, NULL);
+#endif // USING_SFANN_SINS
+
+#ifdef USING_SPI
+    xCountingSemaphore_timeout1 = xSemaphoreCreateCounting(200, 0);
+    mcu_init();
+    xTaskCreate(timer1_check_task, "timer1_check_task", 4096, NULL, 4, NULL);
+#endif // USING_SPI
+
+#ifdef ONLY_ATT
+    xTaskCreate(data_update, "data_update", 4096, NULL, 4, NULL);
+#endif // ONLY_ATT
+#ifdef PSINS_POS
+    printf("check point1\n");
+    xTaskCreate(data_update_psins_pos, "data_update_psins_pos", 16384, NULL, 4, NULL);
+#endif // PSINS_POS
+#ifdef USING_SFANN_SINS
+    printf("check point1\n");
+    xTaskCreate(data_update_sins_pos, "data_update_sins_pos", 4096, NULL, 4, NULL);
+#endif // USING_SFANN_SINS
+}
+
+#ifdef USING_I2C
+#ifdef USING_DMP
+static void ins_init(void)
+{
+    new_point.q[0] = 1;
+    new_point.q[1] = 0;
+    new_point.q[2] = 0;
+    new_point.q[3] = 0;
+    printf("ins_init finished\n");
+}
+
+/**
+ * @description: 通过中断获取DMP中传来的数据
+ * @param {void} *arg
+ * @return {*}
+ */
+static void gpio_task(void *arg)
+{
+    uint32_t io_num;
+    float angle_increment;
+    s_point point_got;
+    for (;;) {
+        if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+#if defined USING_PSINS
+            if (data_updated == true) { // 上一个数据处理完
+                data_updated = false;
+                gyro_data_ready_cb();
+                dmp_get_data(&point_got);
+                for (int i = 0; i < 3; i++) {
+                    new_point.acc[i] = point_got.acc[i];
+                    new_point.gyr[i] = point_got.gyr[i];
+                    new_point.linear_acc[i] = point_got.linear_acc[i];
+                    new_point.acc_fifo[i] = point_got.acc_fifo[i];
+                    new_point.gyr_fifo[i] = point_got.gyr_fifo[i];
+#ifdef GET_RAW_INFO
+                    new_point.acc_raw[i] = point_got.acc_raw[i];
+                    new_point.gyr_raw[i] = point_got.gyr_raw[i];
+#endif // GET_RAW_INFO
+                }
+                mpu_AD_value.Gyro[0] = -new_point.gyr_fifo[0]; // fifo读数和直接寄存器读数相差一个负号
+                mpu_AD_value.Gyro[1] = -new_point.gyr_fifo[1]; // fifo读数和直接寄存器读数相差一个负号
+                mpu_AD_value.Gyro[2] = new_point.gyr_fifo[2];
+                // mpu_AD_value.Gyro[0] = 0; // fifo读数和直接寄存器读数相差一个负号
+                // mpu_AD_value.Gyro[1] = 0; // fifo读数和直接寄存器读数相差一个负号
+                // mpu_AD_value.Gyro[2] = 0;
+                for (int i = 0; i < 3; i++) {
+                    mpu_AD_value.Accel[i] = new_point.acc_fifo[i];
+                    mpu_Data_value.Accel[i] = (double)mpu_AD_value.Accel[i] / (double)A_RANGE_NUM;
+                    mpu_Data_value.Gyro[i] = (double)mpu_AD_value.Accel[i] / (double)65.5;
+                }
+                // printf("new_point.acc:(%.3f,%.3f,%.3f)\n", new_point.acc[0], new_point.acc[1], new_point.acc[2]);
+                // printf("new_point.linear_acc:(%.3f,%.3f,%.3f)\n", new_point.linear_acc[0], new_point.linear_acc[1], new_point.linear_acc[2]);
+                // printf("new_point.gyr(rad):(%.3f,%.3f,%.3f)\n", new_point.gyr[0], new_point.gyr[1], new_point.gyr[2]);
+                xSemaphoreGive(xCountingSemaphore_data_update);
+            }
+#endif // USING_PSINS
+
+#ifdef USING_INS
+            new_point = *get_point(&new_point, 0.2, G);
+            printf("point get:(%.3f,%.3f,%.3f)\n\n", new_point.position[0], new_point.position[1], new_point.position[2]);
+            dmp_get_data(&point_got);
+            for (int i = 0; i < 3; i++) {
+                new_point.q[i] = point_got.q[i];
+                new_point.acc[i] = point_got.acc[i];
+                new_point.gyr[i] = point_got.gyr[i];
+                new_point.linear_acc[i] = point_got.linear_acc[i];
+            }
+            new_point.q[3] = point_got.q[3];
+            printf("new_point.speed:(%.3f,%.3f,%.3f)\n", new_point.speed[0], new_point.speed[1], new_point.speed[2]);
+            printf("new_point.q:(%.3f,%.3f,%.3f,%.3f)\n", new_point.q[0], new_point.q[1], new_point.q[2], new_point.q[3]);
+            printf("new_point.gyr:(%.3f,%.3f,%.3f)\n", new_point.gyr[0], new_point.gyr[1], new_point.gyr[2]);
+            // MPU_Get_Magnetometer(&imx, &imy, &imz);
+            // printf("MPU_Get_Magnetometer:(%d,%d,%d)\n", imx, imy, imz);
+            xSemaphoreGive(xCountingSemaphore_data_update);
+#endif // USING_INS
+        }
+    }
+}
+
+// /**
+//  * @description: 用于计算角度的增量
+//  * @param {float} currentAngle
+//  * @return {*}
+//  */
+// float compute_angle_increment(float current_angle)
+// {
+//     float angle_increment = current_angle - prev_angle;
+//     prev_angle = current_angle;
+//     return angle_increment;
+// }
+#endif // USING_DMP
+
+#ifdef USING_RAW
+/**
+ * @description: 监听timer3超时，定时器3周期查询数据
+ * @param {void} *pvParameters
+ * @return {*}
+ */
+static void timer3_check_task(void *pvParameters)
+{
+    while (1) {
+        if (xSemaphoreTake(xCountingSemaphore_timeout3, portMAX_DELAY) == pdTRUE) // 得到了信号量
+        {
+            RAW_MPU_Get_Gyroscope(&gyr[0], &gyr[1], &gyr[2]);     // 读取角速度原始数据
+            RAW_MPU_Get_Accelerometer(&acc[0], &acc[1], &acc[2]); // 读取角加速度原始数据
+            RAW_MPU_Get_Magnetometer(&mag[0], &mag[1], &mag[2]);  // 读取磁力计原始数据
+            printf("Accx:%d,Accy:%d,Accz:%d\nGyrox:%d,Gyroy:%d,Gyroz:%d\nMagx:%d,Magy:%d,Magz:%d\n\n",
+                   acc[0], acc[1], acc[2], gyr[0], gyr[1], gyr[2], mag[0], mag[1], mag[2]); // 源数据串口输出
+#if defined ONLY_ATT || defined PSINS_POS
+            for (int i = 0; i < 3; i++) {
+                mpu_AD_value.Accel[i] = acc[i];
+                mpu_AD_value.Gyro[i] = gyr[i];
+                mpu_AD_value.Mag[i] = mag[i];
+
+                mpu_Data_value.Accel[i] = (double)mpu_AD_value.Accel[i] / (double)A_RANGE_NUM;
+                mpu_Data_value.Gyro[i] = (double)mpu_AD_value.Accel[i] / (double)65.5;
+                mpu_Data_value.Mag[i] = mpu_AD_value.Mag[i] * (double)0.25 * ((double)1 + ((double)mag_sensitivity[i] - (double)128) / (double)256);
+            }
+// printf("A_RANGE_NUM:%d\n", A_RANGE_NUM);
+// printf("mag_sensitivity:%d,%d,%d\n", mag_sensitivity[0], mag_sensitivity[1], mag_sensitivity[2]);
+#endif // defined ONLY_ATT || defined PSINS_POS
+
+#ifdef USING_SFANN_SINS
+            for (int i = 0; i < 3; i++) {
+                wm_data[i] = gyr[i];
+                vm_data[i] = acc[i];
+            }
+#endif // USING_SFANN_SINS
+
+#ifdef ONLY_ATT
+            xSemaphoreGive(xCountingSemaphore_data_update);
+#endif
+#ifdef PSINS_POS
+            xSemaphoreGive(xCountingSemaphore_data_update_psins_pos);
+#endif
+#ifdef USING_SFANN_SINS
+            xSemaphoreGive(xCountingSemaphore_data_update_sins_pos);
+#endif
+        }
+    }
+}
+#endif // USING_RAW
+
+#endif // USING_I2C
+
+#ifdef USING_SPI
+/**
+ * @description: 监听timer1超时，定时器1周期查询数据
+ * @param {void} *pvParameters
+ * @return {*}
+ */
+static void timer1_check_task(void *pvParameters)
+{
+    while (1) {
+        if (xSemaphoreTake(xCountingSemaphore_timeout1, portMAX_DELAY) == pdTRUE) // 得到了信号量
+        {
+            READ_MPU9250_A_T_G();
+            // READ_MPU9250_MAG(); // 读MPU9250：IMU和磁
+            //  printf("timer1_check_task\n");
+            xSemaphoreGive(xCountingSemaphore_data_update);
+            timer1_flag = false;
+        }
+    }
+}
+
+#endif // USING_SPI
+
+#ifdef ONLY_ATT
+/**
+ * @description: 最终的定位输出
+ * @param {void} *pvParameters
+ * @return {*}
+ */
+static void data_update(void *pvParameters)
+{
+    CMahony mahony(10.0);
+    // CVect3 eb = CVect3(-4.0, 1.3, 0.0) * glv.dps; // 陀螺零偏 deg/s
+    CVect3 eb = CVect3(0, 0, 0) * glv.dps; // 陀螺零偏 deg/s
+    CVect3 db = O31;
+    double tmp1[3];
+    double tmp2[3];
+    while (1) {
+        if (xSemaphoreTake(xCountingSemaphore_data_update, portMAX_DELAY) == pdTRUE) // 得到了信号量
+        {
+            CVect3 wm = (*(CVect3 *)mpu_Data_value.Gyro * glv.dps - eb) * my_TS;
+            CVect3 vm = (*(CVect3 *)mpu_Data_value.Accel * glv.g0 - db) * my_TS;
+            for (int i = 0; i < 3; i++) {
+                tmp1[i] = (mpu_Data_value.Gyro[i] * glv.dps - 0) * my_TS;
+                tmp2[i] = (mpu_Data_value.Accel[i] * glv.dps - 0) * my_TS;
+            }
+            // printf("glv.dps:%f\n", glv.dps);
+            printf("wm:%f,%f,%f\n", tmp1[0], tmp1[1], tmp1[2]);
+            printf("vm:%f,%f,%f\n", tmp2[0], tmp2[1], tmp2[2]);
+            printf("mpu_AD_value.Accel:(%d,%d,%d)\n", mpu_AD_value.Accel[0], mpu_AD_value.Accel[1], mpu_AD_value.Accel[2]);
+            printf("mpu_AD_value.Gyro:(%d,%d,%d)\n", mpu_AD_value.Gyro[0], mpu_AD_value.Gyro[1], mpu_AD_value.Gyro[2]);
+            printf("mpu_Data_value.Accel:(%f,%f,%f)\n", mpu_Data_value.Accel[0], mpu_Data_value.Accel[1], mpu_Data_value.Accel[2]);
+            printf("mpu_Data_value.Gyro:(%f,%f,%f)\n", mpu_Data_value.Gyro[0], mpu_Data_value.Gyro[1], mpu_Data_value.Gyro[2]);
+            printf("mpu_Data_value.Mag:(%f,%f,%f)\n", mpu_Data_value.Mag[0], mpu_Data_value.Mag[1], mpu_Data_value.Mag[2]);
+            mahony.Update(wm, vm, my_TS);
+            AVPUartOut(q2att(mahony.qnb));
+            data_updated = true;
+        }
+    }
+}
+#endif // ONLY_ATT
+
+#ifdef PSINS_POS
+static void data_update_psins_pos(void *pvParameters)
+{
+    printf("check point4\n");
+    // CKFApp kf(my_TS);
+    printf("check point5\n");
+    double yaw0 = C360CC180(100.0 * glv.deg); // 北偏东为正
+    CVect3 gpspos = LLH(34.24858459, 108.91009771, 403), gpsvn = O31;
+    kf.Init(CSINS(a2qua(CVect3(0, 0, yaw0)), O31, gpspos)); // 请正确初始化方位和位置
+    CVect3 eb = CVect3(-4.0, 1.3, 0.0) * glv.dps;           // 陀螺零偏 deg/s
+    CVect3 db = O31;
+    printf("check point9\n");
+    while (1) {
+        printf("check point22\n");
+        if (xSemaphoreTake(xCountingSemaphore_data_update_psins_pos, portMAX_DELAY) == pdTRUE) {
+            printf("check point2\n");
+            // kf.SetCalcuBurden(TIM2->CNT, 0);
+            kf.SetCalcuBurden(100, 0);
+            CVect3 wm = (*(CVect3 *)mpu_Data_value.Gyro * glv.dps - eb) * my_TS;
+            CVect3 vm = (*(CVect3 *)mpu_Data_value.Accel * glv.g0 - db) * my_TS;
+            // if (GPS_OK_flag) {
+            //     GPS_OK_flag = 0;
+            //     if (gps_Data_value.GPS_numSV > 6 && gps_Data_value.GPS_pDOP < 5.0f) {
+            //         gpsvn = *(CVect3 *)gps_Data_value.GPS_Vn;
+            //         gpspos = *(CVect3 *)gps_Data_value.GPS_Pos;
+            //         //				kf.SetMeasGNSS(gpspos, gpsvn);
+            //     }
+            // }
+            //		if(kf.iter==-2) kf.SetMeasGNSS(gpspos, CVect3(0,0,0.01));
+            kf.Update(&wm, &vm, 1, my_TS, 3);
+            AVPUartOut(kf);
+            //		out_data.Vn[2] = kf.SetCalcuBurden(TIM2->CNT,1);  // for debug
+            //		out_data.Pos[4] = kf.timcnt1 + kf.timcnt0/100.0;
+            timer3_flag = false;
+        }
+    }
+}
+#endif // PSINS_POS
+
+#ifdef USING_SFANN_SINS
+static void data_update_sins_pos(void *pvParameters)
+{
+    printf("check point4\n");
+    double deg2rad;
+    deg2rad = pi / 180;
+    Matrix vn, pos, qnb, wm, vm, avptq, avpt;
+    vn = Create_Matrix(3, 1);
+    pos = Create_Matrix(3, 1);
+    qnb = Create_Matrix(4, 1);
+    wm = Create_Matrix(3, 1);
+    vm = Create_Matrix(3, 1);
+    avptq = Create_Matrix(14, 1);
+    avpt = Create_Matrix(10, 1);
+    double att_data[3] = {0, 0, 90 * deg2rad};
+    double vn_data[3] = {0, 0, 0};
+    double pos_data[3] = {34 * deg2rad, 108 * deg2rad, 100};
+    double qnb_data[4] = {0};
+    double ts = 0.2, nts = 0.0;
+    // double wm_data[3] = {0};
+    // double vm_data[3] = {0};
+
+    qnb = att2que(att_data);
+    SetData_Matrix(vn, vn_data);
+    SetData_Matrix(pos, pos_data);
+    printf("check point9\n");
+
+    while (1) {
+        if (xSemaphoreTake(xCountingSemaphore_data_update_sins_pos, portMAX_DELAY) == pdTRUE) {
+            printf("check point2\n");
+            SetData_Matrix(wm, wm_data);
+            SetData_Matrix(vm, vm_data);
+            nts = nts + ts;
+            avptq = my_insupdate(qnb, vn, pos, wm, vm, nts);
+            avpt = Cope_Matrix(avptq, 10, 1);
+
+            vn_data[0] = PickInMat(avptq, 4, 1);
+            vn_data[1] = PickInMat(avptq, 5, 1);
+            vn_data[2] = PickInMat(avptq, 6, 1);
+            pos_data[0] = PickInMat(avptq, 7, 1);
+            pos_data[1] = PickInMat(avptq, 8, 1);
+            pos_data[2] = PickInMat(avptq, 9, 1);
+            qnb_data[0] = PickInMat(avptq, 11, 1);
+            qnb_data[1] = PickInMat(avptq, 12, 1);
+            qnb_data[2] = PickInMat(avptq, 13, 1);
+            qnb_data[3] = PickInMat(avptq, 14, 1);
+
+            SetData_Matrix(vn, vn_data);
+            SetData_Matrix(pos, pos_data);
+            SetData_Matrix(qnb, qnb_data);
+            ShowWrite_Matrix(Trans_Matrix(avptq));
+            timer3_flag = false;
+        }
+    }
+}
+#endif // USING_SFANN_SINS
