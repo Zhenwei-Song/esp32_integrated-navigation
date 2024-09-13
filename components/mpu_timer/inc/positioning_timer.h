@@ -68,7 +68,8 @@ extern SemaphoreHandle_t xCountingSemaphore_timeout2;
 #ifdef DOWN_SAMPLING
 #define TIME2_TIMER_PERIOD (1 * 1000000 / OUT_SAMPING_RATE)
 #else
-#define TIME2_TIMER_PERIOD (1 * 1000000 / (SAMPLE_RATE/2))
+//#define TIME2_TIMER_PERIOD (1 * 1000000 / (SAMPLE_RATE/2))
+#define TIME2_TIMER_PERIOD (1 * 1000000 / (SAMPLE_RATE))
 #endif
 void time2_timer_cb(void);
 #endif // PSINS_UART

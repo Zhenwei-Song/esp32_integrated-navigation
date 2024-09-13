@@ -2,8 +2,8 @@
  * @Author: Zhenwei Song zhenwei.song@qq.com
  * @Date: 2024-03-14 10:31:11
  * @LastEditors: Zhenwei Song zhenwei.song@qq.com
- * @LastEditTime: 2024-07-17 16:08:52
- * @FilePath: \esp32_positioning\components\psins\src\KFApp.cpp
+ * @LastEditTime: 2024-09-09 16:04:33
+ * @FilePath: \esp32_integrated navigation\components\psins\src\KFApp.cpp
  * @Description: 仅供学习交流使用
  * Copyright (c) 2024 by Zhenwei Song, All Rights Reserved.
  */
@@ -24,7 +24,7 @@ CKFApp::CKFApp(double ts) : CSINSGNSS(19, 6, ts)
 
 void CKFApp::Init(const CSINS &sins0, int grade)
 {
-#if 0
+#if 1
     CSINSGNSS::Init(sins0);
     Pmax.Set2(fPHI(600, 600), fXXX(500), fdPOS(1e6), fDPH3(5000), fMG3(10), fXXX(10), 0.1);
     Pmin.Set2(fPHI(0.1, 1.0), fXXX(0.001), fdPOS(0.1), fDPH3(0.1), fUG3(10), fXXX(0.01), 0.0001);
@@ -46,7 +46,7 @@ void CKFApp::Init(const CSINS &sins0, int grade)
     Rmin = Rt * 0.01;
     Rb = 0.06;                                      // 调小使得滤波器更敏感，反应更快
     FBTau.Set(fXX9(0.005), fXX6(0.01), fINF3, INF); // 减小反馈时间常数，使响应更快
-#elif 0                                             // 更激进
+#elif 0 // 更激进
     CSINSGNSS::Init(sins0);
     Pmax.Set2(fPHI(600, 600), fXXX(500), fdPOS(1e6), fDPH3(5000), fMG3(10), fXXX(10), 0.1);
     Pmin.Set2(fPHI(0.1, 1.0), fXXX(0.001), fdPOS(0.1), fDPH3(0.1), fUG3(10), fXXX(0.01), 0.0001);
@@ -57,7 +57,7 @@ void CKFApp::Init(const CSINS &sins0, int grade)
     Rmin = Rt * 0.01;
     Rb = 0.05;
     FBTau.Set(fXX9(0.005), fXX6(0.01), fINF3, INF);
-#else                                               // 哈工程光纤惯导组合导航
+#else   // 哈工程光纤惯导组合导航
     CSINSGNSS::Init(sins0);
     Pmax.Set2(50.0 * glv.deg, 50.0 * glv.deg, 100.0 * glv.deg, 500.0, 500.0, 500.0, 1.0e6 / glv.Re, 1.0e6 / glv.Re, 1.0e6,
               5000.0 * glv.dph, 5000.0 * glv.dph, 5000.0 * glv.dph, 10.0 * glv.mg, 10.0 * glv.mg, 10.0 * glv.mg, 10.0, 10.0, 10.0, 0.5, 10000 * PPM);

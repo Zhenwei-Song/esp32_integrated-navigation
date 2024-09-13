@@ -2,7 +2,7 @@
  * @Author: Zhenwei Song zhenwei.song@qq.com
  * @Date: 2024-03-11 15:46:52
  * @LastEditors: Zhenwei Song zhenwei.song@qq.com
- * @LastEditTime: 2024-07-22 18:58:13
+ * @LastEditTime: 2024-09-09 17:03:33
  * @FilePath: \esp32_integrated navigation\main\main.h
  * @Description: 仅供学习交流使用
  * Copyright (c) 2024 by Zhenwei Song, All Rights Reserved.
@@ -67,7 +67,7 @@
 #define GPIO_INTR 23
 #endif
 
-#define DEFAULT_HZ (1000)   // 设置MPU9250的采样率
+#define DEFAULT_HZ (1000)    // 设置MPU9250的采样率
 #define G_RANGE G_RANGE_250 // 传感器角速度量程
 #define A_RANGE A_RANGE_2   // 传感器加速度量程
 
@@ -75,14 +75,14 @@
 #define LATITUDE 34.2339893101992    // 纬度
 #define ALTITUDE 430                 // 海拔
 
-#define WAIT_TIME 1000      // 秒乘1000
-#define ALIGN_TIME 1000 // 秒乘1000
+#define WAIT_TIME 1000   // 秒乘1000
+#define ALIGN_TIME 60000 // 秒乘1000
 // #define ALIGN_TIME 10000 // 秒乘1000
 #define ZERO_BIAS_CAL_TIME 1000
 /* -------------------------------------------------------------------------- */
 /*                                  降采样速率相关设置                                 */
 /* -------------------------------------------------------------------------- */
-#define SAMPLE_RATE (220)
+#define SAMPLE_RATE (100)
 #define MAG_SAMPLE_RATE 200
 #define MAG_SAMPLE_FACTOR (SAMPLE_RATE / MAG_SAMPLE_RATE)
 

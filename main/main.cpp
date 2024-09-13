@@ -2,7 +2,7 @@
  * @Author: Zhenwei Song zhenwei.song@qq.com
  * @Date: 2024-02-28 18:53:28
  * @LastEditors: Zhenwei Song zhenwei.song@qq.com
- * @LastEditTime: 2024-07-22 19:29:53
+ * @LastEditTime: 2024-09-09 15:34:54
  * @FilePath: \esp32_integrated navigation\main\main.cpp
  * 驱动mpu9250，串口输出欧拉角，可用上位机进行串口连接查看图像
  * 利用官方dmp库输出欧拉角（使用I2C时）
@@ -269,8 +269,8 @@ extern "C" void app_main(void)
                         printf("temp_gyro_bias[%d] %f\n", i, temp_gyro_bias[i]);
                         printf("temp_acc_bias[%d] %f \n", i, temp_acc_bias[i]);
                     }
-                    eb = CVect3(temp_gyro_bias[0], temp_gyro_bias[1], temp_gyro_bias[2]); // 陀螺零偏 deg/s
-                    db = CVect3(temp_acc_bias[0], temp_acc_bias[1], temp_acc_bias[2]);
+                    // eb = CVect3(temp_gyro_bias[0], temp_gyro_bias[1], temp_gyro_bias[2]); // 陀螺零偏 deg/s
+                    // db = CVect3(temp_acc_bias[0], temp_acc_bias[1], temp_acc_bias[2]);
                     printf("Finish calculating bias!!\n");
                 }
             }
