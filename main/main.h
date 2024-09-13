@@ -30,6 +30,10 @@
 #define USING_RAW // 用直接读寄存器的方式
 // #define DOWN_SAMPLING // 降采样
 #define YAW_INIT // 利用磁力初始化yaw
+
+#define YAW_INIT_WITH_MAG_AND_GYRO
+#define YAW_WEIGHT 0.9 //YAW互补滤波权重
+
 // #define GET_ACC_WITHOUT_G //RAW模式下获取去除了重力分量之后的加速度，用于加速度零偏处理
 #endif
 
@@ -148,7 +152,7 @@
 #error "Can't use RAW and DMP at the same time!"
 #endif
 
-extern MPU_AD_value mpu_AD_value;
+    extern MPU_AD_value mpu_AD_value;
 extern MPU_Data_value mpu_Data_value;
 extern GPS_Data_value gps_Data_value;
 extern INS_Data_value ins_Data_value;

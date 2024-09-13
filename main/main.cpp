@@ -2,7 +2,7 @@
  * @Author: Zhenwei Song zhenwei.song@qq.com
  * @Date: 2024-02-28 18:53:28
  * @LastEditors: Zhenwei Song zhenwei.song@qq.com
- * @LastEditTime: 2024-09-09 15:34:54
+ * @LastEditTime: 2024-09-13 19:39:18
  * @FilePath: \esp32_integrated navigation\main\main.cpp
  * 驱动mpu9250，串口输出欧拉角，可用上位机进行串口连接查看图像
  * 利用官方dmp库输出欧拉角（使用I2C时）
@@ -341,14 +341,54 @@ extern "C" void app_main(void)
                     align.Update(&wm, &vm, 1, my_TS, O31);
                     if (OUT_cnt > (ALIGN_TIME + ZERO_BIAS_CAL_TIME + WAIT_TIME)) {
                         align_ok = true;
-                        kf.Init(CSINS(a2qua(CVect3(0, 0, yaw0)), O31, pos0)); // 请正确初始化方位和位置
+                        my_att = q2att(align.qnb); // 获取对准结束后的姿态阵（四元数）,不用qnb
+                        my_att.k = yaw0;
+#ifndef YAW_INIT
+                        kf.Init(CSINS(my_att, O31, pos0)); // 请正确初始化方位和位置
+#endif // YAW_INIT
                         printf("Finish Aligning!!\n");
                     }
                 }
                 else // 后续更新
                 {
+#ifdef YAW_INIT
+                    if (yaw_init_ok == false) {
+                        CVect3 Mag = CVect3(temp_mag);
+                        IMURFU(&Mag, 1, "FRD");
+                        Mag = (Mag * 0.01 - b) * A;
+                        Mag = a2qua(my_att) * Mag;
+                        double yaw = atan2Ex(Mag.i, Mag.j) + yaw0;
+                        if (yaw > PI)
+                            yaw = yaw - 2 * PI;
+                        else if (yaw < -PI)
+                            yaw = yaw + 2 * PI;
+
+#ifdef YAW_INIT_WITH_MAG_AND_GYRO // 陀螺仪结合磁力计初始化航向角
+
+                        double yaw_gyro = C360CC180(0 * glv.deg);                                                                                                                                                                            // 北偏东为正
+                        yaw_gyro = atan2Ex((2(align.qnb.q1 * align.qnb.q2 + align.qnb.q0 * align.qnb.q3), (align.qnb.q0 * align.qnb.q0 - align.qnb.q1 * align.qnb.q1 + align.qnb.q2 * align.qnb.qnb.q2 - align.qnb.q3 * align.qnb.qnb.q3))); // 还未经测试
+                        if (yaw_gyro > PI)
+                            yaw_gyro = yaw_gyro - 2 * PI;
+                        else if (yaw_gyro < -PI)
+                            yaw_gyro = yaw_gyro + 2 * PI;
+                        double yaw_final = YAW_WEIGHT * yaw + (1 - YAW_WEIGHT) * yaw_gyro; // 互补滤波
+                        my_att.k = yaw_final;
+#else
+                        my_att.k = yaw;
+#endif // YAW_INIT_WITH_MAG_AND_GYRO
+
+                        kf.Init(CSINS(my_att, O31, pos0)); // 请正确初始化方位和位置
+                        yaw_init_ok = true;
+                        printf("Finish initializing yaw!\n");
+                    }
+                    else {
+                        kf.Update(&wm, &vm, 1, my_TS, 1);
+                        // AVPUartOut(kf);
+                    }
+#else  //! def YAW_INIT
                     kf.Update(&wm, &vm, 1, my_TS, 1);
                     // AVPUartOut(kf);
+#endif // def YAW_INIT
                 }
 
                 if (align_ok == true) {
