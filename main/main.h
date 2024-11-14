@@ -2,7 +2,7 @@
  * @Author: Zhenwei Song zhenwei.song@qq.com
  * @Date: 2024-03-11 15:46:52
  * @LastEditors: Zhenwei Song zhenwei.song@qq.com
- * @LastEditTime: 2024-09-09 17:03:33
+ * @LastEditTime: 2024-10-16 19:39:04
  * @FilePath: \esp32_integrated navigation\main\main.h
  * @Description: 仅供学习交流使用
  * Copyright (c) 2024 by Zhenwei Song, All Rights Reserved.
@@ -31,8 +31,8 @@
 // #define DOWN_SAMPLING // 降采样
 #define YAW_INIT // 利用磁力初始化yaw
 
-#define YAW_INIT_WITH_MAG_AND_GYRO
-#define YAW_WEIGHT 0.9 //YAW互补滤波权重
+// #define YAW_INIT_WITH_MAG_AND_GYRO
+#define YAW_WEIGHT 0.9 // YAW互补滤波权重
 
 // #define GET_ACC_WITHOUT_G //RAW模式下获取去除了重力分量之后的加速度，用于加速度零偏处理
 #endif
@@ -53,7 +53,7 @@
 #define PSINS_POS_ON_BOARD // 板上更新信息
 #define PSINS_UART         // 上传给上位机数据
 
-// #define USING_PDR
+#define USING_PDR
 // #define USING_ZUPT
 // #difned FORCED_CONVERGENCE //强制收敛
 
@@ -71,7 +71,7 @@
 #define GPIO_INTR 23
 #endif
 
-#define DEFAULT_HZ (1000)    // 设置MPU9250的采样率
+#define DEFAULT_HZ (1000)   // 设置MPU9250的采样率
 #define G_RANGE G_RANGE_250 // 传感器角速度量程
 #define A_RANGE A_RANGE_2   // 传感器加速度量程
 
@@ -79,15 +79,15 @@
 #define LATITUDE 34.2339893101992    // 纬度
 #define ALTITUDE 430                 // 海拔
 
-#define WAIT_TIME 1000   // 秒乘1000
-#define ALIGN_TIME 60000 // 秒乘1000
+#define WAIT_TIME 1000  // 秒乘1000
+#define ALIGN_TIME 6000 // 秒乘1000
 // #define ALIGN_TIME 10000 // 秒乘1000
 #define ZERO_BIAS_CAL_TIME 1000
 /* -------------------------------------------------------------------------- */
 /*                                  降采样速率相关设置                                 */
 /* -------------------------------------------------------------------------- */
 #define SAMPLE_RATE (100)
-#define MAG_SAMPLE_RATE 200
+#define MAG_SAMPLE_RATE 200 //弃用，mag采样频率同上
 #define MAG_SAMPLE_FACTOR (SAMPLE_RATE / MAG_SAMPLE_RATE)
 
 #ifdef DOWN_SAMPLING
@@ -152,7 +152,7 @@
 #error "Can't use RAW and DMP at the same time!"
 #endif
 
-    extern MPU_AD_value mpu_AD_value;
+extern MPU_AD_value mpu_AD_value;
 extern MPU_Data_value mpu_Data_value;
 extern GPS_Data_value gps_Data_value;
 extern INS_Data_value ins_Data_value;

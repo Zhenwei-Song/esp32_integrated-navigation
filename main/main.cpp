@@ -2,7 +2,7 @@
  * @Author: Zhenwei Song zhenwei.song@qq.com
  * @Date: 2024-02-28 18:53:28
  * @LastEditors: Zhenwei Song zhenwei.song@qq.com
- * @LastEditTime: 2024-09-13 19:39:18
+ * @LastEditTime: 2024-10-16 19:29:26
  * @FilePath: \esp32_integrated navigation\main\main.cpp
  * 驱动mpu9250，串口输出欧拉角，可用上位机进行串口连接查看图像
  * 利用官方dmp库输出欧拉角（使用I2C时）
@@ -380,6 +380,8 @@ extern "C" void app_main(void)
                         kf.Init(CSINS(my_att, O31, pos0)); // 请正确初始化方位和位置
                         yaw_init_ok = true;
                         printf("Finish initializing yaw!\n");
+                        printf("yaw:%f rad\n", my_att.k);
+                        printf("yaw:%f \n", my_att.k * 180 / PI);
                     }
                     else {
                         kf.Update(&wm, &vm, 1, my_TS, 1);
@@ -440,7 +442,7 @@ extern "C" void app_main(void)
 
                             // printf("yaw: %f\n", CC180C360(kf.sins.att.k) / DEG);
                             // printf("pdr_length_n: %f, pdr_length_e:%f\n", pdr_length_n, pdr_length_e);
-                            printf("pdr start!\n");
+                            printf("ins start!\n");
                             pdr_last_step_time = pdr_current_step_time;
                         }
                     }
